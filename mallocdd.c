@@ -21,6 +21,7 @@ struct malloc_debug_msg {
 };
 
 const char *__progname;
+char *prog;
 
 __dead void
 usage(void)
@@ -35,28 +36,33 @@ struct conn {
 
 #define PATH_MALLOCDD_SOCK "/var/run/malloc_debug.sock"
 
-service()
+void
+service(int fd)
 {
+	struct malloc_debug_msg m;
 	ssize_t rc;
 
-	while ((rc = read(fd, &m, sizeof(m))) == sizeof(m)) {
-		printf();
-		snprintf(buf, sizeof()"{ echo attach %d; echo bt; echo detach; echo quit; } | "
-		    "gdb -q -x /dev/stdin /usr/src/usr.sbin/smtpd.current/smtpd/obj/smtpd\n");
+	for (;;) {
+		rc = read(fd, &m, sizeof(m));
+		if (rc == -1)
+			err(1, "read");
+		if (rc != sizeof(m))
+			break;
+		printf("\nALLOC(%zd)=%p\n", m.siz, m.p);
+		snprintf(buf, sizeof(buf),
+		    "{ echo attach %d; echo bt; echo detach; echo quit; } | "
+		    "gdb -q -x /dev/stdin %s", m.pid, prog);
 		system(buf);
 		write(fd, &m, sizeof(m));
 	}
-	if (rc == -1)
-		err(1, "");
 }
 
 int
 main(int argc, char *argv[])
 {
-	struct malloc_debug_msg m;
 	struct sockaddr_un sun;
 	mode_t old_umask;
-	int s;
+	int s, fd;
 
 	if (getopt(argc, argv, "") != -1)
 		usage();
@@ -90,18 +96,23 @@ main(int argc, char *argv[])
 		fatal("chmod");
 	}
 
+	if (listen(s, 15) == -1)
+		fatal("listen");
+
 	for (;;) {
-		accept();
+		fd = accept(s, NULL, NULL);
 		switch (fork()) {
 		case -1:
 			err(1, "fork");
 		case 0:
+			close(fd);
 			break;
 		default:
-			break;
-		close();
+			close(s);
+			service(fd);
+			close(fd);
+			exit(0);
 		}
 	}
-
 	exit(0);
 }
