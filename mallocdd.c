@@ -2,11 +2,15 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 
+#include <err.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define MALLOC_DEBUG_OP_ALLOC	0
 #define MALLOC_DEBUG_OP_FREE	1
@@ -40,6 +44,7 @@ void
 service(int fd)
 {
 	struct malloc_debug_msg m;
+	char buf[BUFSIZ];
 	ssize_t rc;
 
 	for (;;) {
@@ -69,35 +74,35 @@ main(int argc, char *argv[])
 
 	s = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (s == -1)
-		fatal("socket");
+		err(1, "socket");
 
 	bzero(&sun, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 	if (strlcpy(sun.sun_path, PATH_MALLOCDD_SOCK,
 	    sizeof(sun.sun_path)) >= sizeof(sun.sun_path))
-		fatal("socket name too long");
+		err(1, "socket name too long");
 
 	if (connect(s, (struct sockaddr *)&sun, sizeof(sun)) == 0)
-		fatalx("control socket already listening");
+		errx(1, "control socket already listening");
 
 	if (unlink(PATH_MALLOCDD_SOCK) == -1)
 		if (errno != ENOENT)
-			fatal("cannot unlink socket");
+			err(1, "cannot unlink socket");
 
 	old_umask = umask(0117);
 	if (bind(s, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
 		umask(old_umask);
-		fatal("bind");
+		err(1, "bind");
 	}
 	umask(old_umask);
 
 	if (chmod(PATH_MALLOCDD_SOCK, 0666) == -1) {
 		unlink(PATH_MALLOCDD_SOCK);
-		fatal("chmod");
+		err(1, "chmod");
 	}
 
 	if (listen(s, 15) == -1)
-		fatal("listen");
+		err(1, "listen");
 
 	for (;;) {
 		fd = accept(s, NULL, NULL);
