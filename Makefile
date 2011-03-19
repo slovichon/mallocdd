@@ -1,6 +1,6 @@
 # $Id$
 
-PROG=		smtpd
+PROG=		mallocdd
 
 CFLAGS+=	-W -Wall -g
 
