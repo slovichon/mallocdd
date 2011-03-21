@@ -57,6 +57,7 @@ service(int fd)
 		snprintf(buf, sizeof(buf),
 		    "{ echo attach %d; echo bt; echo detach; echo quit; } | "
 		    "gdb -q -x /dev/stdin %s", m.pid, prog);
+		printf("%s\n", buf);
 		system(buf);
 		write(fd, &m, sizeof(m));
 	}
@@ -71,6 +72,11 @@ main(int argc, char *argv[])
 
 	if (getopt(argc, argv, "") != -1)
 		usage();
+	argc -= optind;
+	argv += optind;
+	if (argc != 1)
+		usage();
+	prog = argv[0];
 
 	s = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (s == -1)
