@@ -1,0 +1,120 @@
+? malloc.diff
+Index: stdlib/malloc.c
+===================================================================
+RCS file: /cvs/src/lib/libc/stdlib/malloc.c,v
+retrieving revision 1.125
+diff -u -p -r1.125 malloc.c
+--- stdlib/malloc.c	18 May 2010 22:24:55 -0000	1.125
++++ stdlib/malloc.c	28 Mar 2011 17:16:41 -0000
+@@ -189,6 +189,12 @@ static size_t rnibblesused;		/* random n
+ static u_char rbytes[512];		/* random bytes */
+ static u_char getrnibble(void);
+ 
++int libc_malloc_debug_sock = -1;
++
++#define MALLOC_DEBUG_OP_ALLOC	0
++#define MALLOC_DEBUG_OP_FREE	1
++#define MALLOC_DEBUG_OP_REALLOC	2
++
+ extern char	*__progname;
+ 
+ /* low bits of r->p determine size: 0 means >= page size and p->size holding
+@@ -1199,9 +1205,61 @@ malloc_init(void)
+ 		errno = ENOMEM;
+ 		return -1;
+ 	}
++if (libc_malloc_debug_sock != -1)
++ signal(SIGPIPE, SIG_IGN);
+ 	return 0;
+ }
+ 
++#include <sys/socket.h>
++#include <sys/un.h>
++int
++libc_malloc_debug_getconn(void)
++{
++	struct sockaddr_un sun;
++
++	if (libc_malloc_debug_sock != -1)
++		close(libc_malloc_debug_sock);
++
++	libc_malloc_debug_sock = socket(AF_UNIX, SOCK_STREAM, 0);
++	if (libc_malloc_debug_sock == -1)
++		err(1, "socket");
++
++	bzero(&sun, sizeof(sun));
++	sun.sun_family = AF_UNIX;
++	if (strlcpy(sun.sun_path, "/var/run/malloc_debug.sock",
++	    sizeof(sun.sun_path)) >= sizeof(sun.sun_path))
++		err(1, "socket name too long");
++
++	if (connect(libc_malloc_debug_sock,
++	    (struct sockaddr *)&sun, sizeof(sun)) == -1)
++		errx(1, "connect");
++}
++
++static void
++trace_malloc(int op, size_t size, void *p, void *p0)
++{
++	struct malloc_debug_msg {
++		size_t	 siz;
++		void	*p;
++		void	*p0;
++		pid_t	 pid;
++		int	 op;
++	} m;
++
++	if (libc_malloc_debug_sock == -1)
++		return;
++
++	memset(&m, 0, sizeof(m));
++	m.siz = size;
++	m.p = p;
++	m.p0 = p0;
++	m.pid = getpid();
++	m.op = op;
++
++	write(libc_malloc_debug_sock, &m, sizeof(m));
++	read(libc_malloc_debug_sock, &m, sizeof(m));
++}
++
+ void *
+ malloc(size_t size)
+ {
+@@ -1227,6 +1285,7 @@ malloc(size_t size)
+ 	}
+ 	if (r != NULL)
+ 		errno = saved_errno;
++trace_malloc(MALLOC_DEBUG_OP_ALLOC, size, r, NULL);
+ 	return r;
+ }
+ 
+@@ -1306,6 +1365,7 @@ free(void *ptr)
+ 	/* This is legal. */
+ 	if (ptr == NULL)
+ 		return;
++trace_malloc(MALLOC_DEBUG_OP_FREE, 0, ptr, NULL);
+ 
+ 	_MALLOC_LOCK();
+ 	malloc_func = " in free():";  
+@@ -1442,6 +1502,12 @@ realloc(void *ptr, size_t size)
+ 	}
+ 	if (r != NULL)
+ 		errno = saved_errno;
++if (size == 0)
++ trace_malloc(MALLOC_DEBUG_OP_FREE, 0, r, NULL);
++else if (ptr == NULL)
++ trace_malloc(MALLOC_DEBUG_OP_ALLOC, size, r, NULL);
++else
++ trace_malloc(MALLOC_DEBUG_OP_REALLOC, size, r, ptr);
+ 	return r;
+ }
+ 
+@@ -1485,6 +1551,7 @@ calloc(size_t nmemb, size_t size)
+ 	}
+ 	if (r != NULL)
+ 		errno = saved_errno;
++trace_malloc(MALLOC_DEBUG_OP_ALLOC, nmemb*size, r, NULL);
+ 	return r;
+ }
+ 
